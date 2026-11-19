@@ -8,10 +8,11 @@ on:
       - '.github/workflows/release.yml'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       version:
-        description: Existing release tag (for example 1.0.0)
+        description: Existing release tag (for example v1.1.1)
         required: true
         type: string
 
@@ -43,9 +44,13 @@ jobs:
           elif [[ "$GITHUB_REF_TYPE" = tag ]]; then
             tag="$GITHUB_REF_NAME"
           else
-            tag="$(jq -er .version src-tauri/tauri.conf.json)"
+            version="$(jq -er .version src-tauri/tauri.conf.json)"
+            tag="v$version"
+            if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+              tag="$version"
+            fi
           fi
-          [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]
           if ! git show-ref --verify --quiet "refs/tags/$tag"; then
             if [[ "$GITHUB_REF_TYPE" = branch && "$GITHUB_EVENT_NAME" = push ]]; then
               exit 0
@@ -92,7 +97,7 @@ jobs:
       - name: Verify tag and application versions
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        run: node -e "process.env.GITHUB_REF_NAME = process.env.RELEASE_TAG; import('./scripts/check-release-version.mjs')"
+        run: node scripts/check-release-version.mjs
       - run: npm ci
       - run: npm test
       - run: npm run build

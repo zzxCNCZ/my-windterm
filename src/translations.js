@@ -33,6 +33,7 @@ export const english = {
   '新建连接': 'New connection', '新建分组': 'New group', '连接 / 重连': 'Connect / reconnect',
   '连接或重连': 'Connect or reconnect', '断开 SSH': 'Disconnect SSH', '断开连接': 'Disconnect',
   '关闭标签': 'Close tab', '标签菜单': 'Tab menu', '搜索终端': 'Find in terminal',
+  '打开新终端': 'Open new terminal', '双击打开新终端': 'Double-click to open a new terminal',
   '下一个匹配': 'Next match', '上一个匹配': 'Previous match', '筛选会话': 'Filter sessions',
   '切换 Filer': 'Toggle Filer', '切换 Session': 'Toggle Session', '切换终端行号': 'Toggle line numbers',
   '切换底部面板': 'Toggle bottom panel', '重新加载配置': 'Reload configuration',

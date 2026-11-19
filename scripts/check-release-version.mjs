@@ -12,7 +12,7 @@ const versions = [
 ];
 const version = versions[0];
 const tag = process.env.RELEASE_TAG || (process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : '');
-if (!/^\d+\.\d+\.\d+$/.test(version) || versions.some(candidate => candidate !== version) || (tag && tag !== version)) {
+if (!/^\d+\.\d+\.\d+$/.test(version) || versions.some(candidate => candidate !== version) || (tag && tag !== version && tag !== `v${version}`)) {
   throw new Error(`Version mismatch: application versions ${versions.join(', ')}; Git tag ${tag || '(none)'}.`);
 }
 console.log(`My WindTerm ${version}: release versions match.`);

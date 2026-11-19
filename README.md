@@ -19,8 +19,9 @@ macOS 构建没有 Developer ID 签名与公证，Windows 构建没有 Authentic
 
 ## 会话保持
 
+- 双击右侧 Session 中的连接，每次都会打开一个新的独立 SSH 标签。单击只选中配置；也可在右键菜单选择 **打开新终端**。点击某个标签的 **×** 只关闭该标签，不影响同一配置的其他连接。
 - 默认每 30 秒发送 SSH 保活探测；每个连接可单独调整。保活不等于断线后继续执行远端任务。
-- 如需重连后回到同一个远端终端，在服务端安装 `tmux`，然后启用连接的 **tmux 持久会话**。应用按连接 ID 生成会话名；断开后点 **Reconnect** 重新附着。结束远端 tmux 会话、远端重启或使用另一个连接 ID 时，不保证能恢复原会话。
+- 如需重连后回到同一个远端终端，在服务端安装 `tmux`，然后启用连接的 **tmux 持久会话**。每个标签有自己的会话名；保留标签并点 **Reconnect** 会重新附着，双击会话树则会新建独立的会话。远端 tmux 会话结束或服务器重启后，不保证能恢复原会话。
 - 应用重启只恢复本机的标签及其顺序，不自动重连，也不持久保存终端输出。关标签会断开该 SSH 进程，不会删除已启用的远端 tmux 会话。
 
 ## Filer：本地与远端文件
@@ -79,7 +80,7 @@ export PATH="$CARGO_HOME/bin:$PATH"
 
 `npm run tauri -- build --bundles app` 构建本机 `.app`；产物在 `src-tauri/target/release/bundle/macos/`。开发版使用 `--debug`，产物在 `src-tauri/target/debug/bundle/macos/`。本项目未配置对外分发的签名与公证。
 
-发布时同步修改 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 的版本，提交后推送与之相同的标签（例如 `1.0.0`）。GitHub Actions 会在两个平台运行测试、构建安装包，全部成功后才创建正式 Release。
+发布时同步修改 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 中的应用版本，提交后推送对应标签（例如版本 `1.1.1` 对应 `v1.1.1`）。GitHub Actions 会在两个平台运行测试、构建安装包，全部成功后才创建正式 Release。
 
 ## 验证
 

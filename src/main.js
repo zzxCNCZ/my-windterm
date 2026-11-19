@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { formatSize, makeFiler } from './filer.js';
 import { installSplitters } from './layout.js';
 import { directoryHooks } from './terminal-directory.js';
-import { filterSessions, restoreTabs, withoutGroup } from './model.js';
+import { connectionTabs, filterSessions, restoreTabs, savedTabs, withoutGroup } from './model.js';
 import { makeTerminal, newId } from './terminal.js';
 import { terminalAppearance } from './appearance.js';
 import { editPreferences } from './preferences.js';
@@ -22,6 +22,7 @@ const collapsedGroups = new Set();
 const stateLabels = { idle: '未连接', starting: '启动中', running: 'SSH 运行中', stopping: '断开中' };
 const emptyProfile = { version: 1, connections: [], groups: [] };
 let view = null, activeId = null;
+let selectedConnectionId = null;
 let dialogSubmit = null, dialogBusy = false, profileBusy = false, loadingProfile = false, dockPane = 'transfer';
 let activeTransfer = null, syncLocalHint = '', popupAnchor, logLines = [], logFrame = 0;
 let lineNumbers = loadLocal('my-windterm:numbers') !== false;
@@ -67,21 +68,22 @@ function saveLocal(key, value) {
 }
 
 function saveTabs() {
-  if (view) saveLocal(`my-windterm:tabs:${view.profilePath}`, { ids: [...tabs.keys()], active: activeId });
+  if (view) saveLocal(`my-windterm:tabs:${view.profilePath}`, savedTabs(tabs.values(), activeId));
 }
 
 function applyView(next, restore = false) {
   view = next;
   const connections = new Map(next.profile.connections.map(connection => [connection.id, connection]));
   for (const [id, session] of tabs) {
-    if (connections.has(id)) session.connection = connections.get(id);
+    if (connections.has(session.connection.id)) session.connection = connections.get(session.connection.id);
     else if (session.state === 'idle') removeTab(id);
   }
   if (restore) {
     const saved = restoreTabs(next.profile, loadLocal(`my-windterm:tabs:${next.profilePath}`));
-    for (const connection of saved.connections) createTab(connection);
+    for (const { id, connection } of saved.tabs) createTab(connection, id);
     activeId = saved.active;
   }
+  selectedConnectionId = active()?.connection.id ?? null;
   render();
 }
 
@@ -130,26 +132,26 @@ async function selectProfileFolder(folder, migrate = false) {
   } finally { profileBusy = false; }
 }
 
-function createTab(connection) {
-  if (tabs.has(connection.id)) return tabs.get(connection.id);
+function createTab(connection, id = newId()) {
   if (tabs.size >= 24) throw new Error('最多打开 24 个标签，请先关闭一个。');
-  const session = makeTerminal({ parent: find('#terminal-area'), connection, invoke, changed: render,
+  const session = makeTerminal({ parent: find('#terminal-area'), id, connection, invoke, changed: render,
     directoryChanged: filer.directoryChanged, outlineChanged: scheduleOutline,
     searchChanged: source => { if (searchSession === source) renderSearch(); },
     report, numbers: () => lineNumbers, semanticColors: () => semanticColors, appearance, remoteFiles: platform.remoteFiles });
-  tabs.set(connection.id, session);
+  tabs.set(session.id, session);
   return session;
 }
 
 function activateTab(id, focus = true) {
   activeId = id;
+  selectedConnectionId = active()?.connection.id ?? null;
   render(focus);
   saveTabs();
 }
 
 function openConnection(connection) {
   const session = createTab(connection);
-  activateTab(connection.id);
+  activateTab(session.id);
   return session.connect();
 }
 
@@ -160,16 +162,30 @@ function removeTab(id) {
   const index = keys.indexOf(id);
   session.dispose();
   tabs.delete(id);
-  if (id === activeId) activeId = keys[index - 1] ?? keys[index + 1] ?? null;
+  if (id === activeId) {
+    activeId = keys[index - 1] ?? keys[index + 1] ?? null;
+    selectedConnectionId = active()?.connection.id ?? null;
+  }
 }
 
 async function closeTab(id) {
   const session = tabs.get(id);
-  if (!session || ['starting', 'stopping'].includes(session.state)) return;
-  if (session.state === 'running') await session.disconnect();
-  removeTab(id);
-  render(true);
-  saveTabs();
+  if (!session) return;
+  if (!session.closing) {
+    session.closing = Promise.resolve().then(async () => {
+      await session.disconnect();
+      if (tabs.get(id) !== session) return;
+      removeTab(id);
+      render(true);
+      saveTabs();
+    }).catch(error => {
+      session.closing = null;
+      render();
+      throw error;
+    });
+    render();
+  }
+  return session.closing;
 }
 
 function render(focus = false) {
@@ -177,18 +193,28 @@ function render(focus = false) {
   filer.setSession(selected);
   find('#welcome').hidden = Boolean(selected);
   const tabNodes = [];
+  const counts = new Map();
+  const order = new Map();
+  for (const session of tabs.values()) {
+    const key = session.connection.id;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
   for (const [id, session] of tabs) {
+    const key = session.connection.id;
+    const number = (order.get(key) ?? 0) + 1;
+    order.set(key, number);
+    const label = counts.get(key) > 1 ? `${session.connection.name} #${number}` : session.connection.name;
     const selectedTab = id === activeId;
     const wrapper = element('div', selectedTab ? 'tab active' : 'tab');
     const select = button(null, 'tab-label', () => activateTab(id));
     select.setAttribute('role', 'tab');
     select.setAttribute('aria-selected', String(selectedTab));
     select.setAttribute('aria-controls', session.pane.id);
-    select.title = session.connection.name;
-    select.append(element('span', session.state === 'idle' ? 'dot inactive' : 'dot', '●'), session.connection.name);
+    select.title = label;
+    select.append(element('span', session.state === 'idle' ? 'dot inactive' : 'dot', '●'), label);
     const close = button('×', 'tab-close', () => run(() => closeTab(id)));
-    close.disabled = ['starting', 'stopping'].includes(session.state);
-    close.setAttribute('aria-label', `关闭 ${session.connection.name}`);
+    close.disabled = Boolean(session.closing);
+    close.setAttribute('aria-label', `${t('关闭')} ${label}`);
     wrapper.append(select, close);
     tabNodes.push(wrapper);
     session.show(selectedTab, selectedTab && focus && !searching);
@@ -252,9 +278,15 @@ function closeSearch() {
 }
 
 function treeConnection(connection, nested) {
-  const row = element('div', `tree-row${nested ? ' nested' : ''}${activeId === connection.id ? ' selected' : ''}`);
-  const item = button(null, 'tree-label', () => run(() => openConnection(connection)));
-  item.title = `${connection.username ? `${connection.username}@` : ''}${connection.host}`;
+  const row = element('div', `tree-row${nested ? ' nested' : ''}${selectedConnectionId === connection.id ? ' selected' : ''}`);
+  const item = button(null, 'tree-label', event => {
+    selectedConnectionId = connection.id;
+    for (const sibling of find('#tree').querySelectorAll('.selected')) sibling.classList.remove('selected');
+    row.classList.add('selected');
+    if (event.detail === 0) run(() => openConnection(connection));
+  });
+  item.addEventListener('dblclick', () => run(() => openConnection(connection)));
+  item.title = `${connection.username ? `${connection.username}@` : ''}${connection.host} · ${t('双击打开新终端')}`;
   item.append(element('span', 'dot', '●'), connection.name);
   const menu = button('⋯', 'tree-menu', () => showPopup(menu, connectionMenu(connection)));
   menu.setAttribute('aria-label', `${connection.name} 操作`);
@@ -266,7 +298,7 @@ function treeConnection(connection, nested) {
 
 function connectionMenu(connection) {
   return [
-    ['打开 SSH', () => openConnection(connection)], ['编辑连接', () => editConnection(connection)],
+    ['打开新终端', () => openConnection(connection)], ['编辑连接', () => editConnection(connection)],
     ['复制为新连接', () => editConnection({ ...connection, id: null, name: `${connection.name} (副本)` })],
     ['目录同步', () => editSync(connection)], ['删除连接', () => confirmDeleteConnection(connection)],
   ];
@@ -471,13 +503,12 @@ function editGroup(group = null) {
 
 function confirmDeleteConnection(connection) {
   if (openEditor('删除连接', '<p></p>', [['取消'], ['删除', 'delete', true]], async () => {
-    if (['starting', 'stopping'].includes(tabs.get(connection.id)?.state)) throw new Error('请等待 SSH 完成启动或断开。');
-    await closeTab(connection.id);
+    await Promise.all(connectionTabs(tabs.values(), connection.id).map(session => closeTab(session.id)));
     const old = profile();
     await saveProfile({ ...old, connections: old.connections.filter(item => item.id !== connection.id) });
     saveTabs();
     status(`已删除连接：${connection.name}`);
-  })) fields.querySelector('p').textContent = `删除「${connection.name}」并关闭其标签？远端 tmux 会话不会被删除。`;
+  })) fields.querySelector('p').textContent = `删除「${connection.name}」并关闭其所有标签？远端 tmux 会话不会被删除。`;
 }
 
 function confirmDeleteGroup(group) {

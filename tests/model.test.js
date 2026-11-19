@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { filerMode } from '../src/filer.js';
-import { filterSessions, restoreTabs, withoutGroup } from '../src/model.js';
+import { connectionTabs, filterSessions, restoreTabs, savedTabs, withoutGroup } from '../src/model.js';
 
-const first = { id: 'a', name: 'Build', host: 'build.example.org', username: 'ops', groupId: 'g' };
-const second = { id: 'b', name: 'Backup', host: 'backup.example.org', username: 'root', groupId: null };
+const first = { id: '00000000-0000-4000-8000-000000000001', name: 'Build', host: 'build.example.org', username: 'ops', groupId: 'g' };
+const second = { id: '00000000-0000-4000-8000-000000000002', name: 'Backup', host: 'backup.example.org', username: 'root', groupId: null };
 const profile = { version: 1, groups: [{ id: 'g', name: '开发环境' }], connections: [first, second] };
 
 test('Filer follows an active SSH tab without overriding its local preference', () => {
@@ -30,8 +30,23 @@ test('removing a group moves its connections instead of deleting them', () => {
   assert.equal(first.groupId, 'g');
 });
 
-test('restores only saved, unique tab IDs and selects a valid tab', () => {
-  assert.deepEqual(restoreTabs(profile, { ids: ['a', 'gone', 'a', 'b'], active: 'gone' }), { connections: [first, second], active: 'b' });
-  assert.deepEqual(restoreTabs(profile, { ids: ['b', 'a'], active: 'b' }), { connections: [second, first], active: 'b' });
-  assert.deepEqual(restoreTabs(profile, { ids: {} }), { connections: [], active: null });
+test('migrates old saved tabs without changing their original tmux identity', () => {
+  assert.deepEqual(restoreTabs(profile, { ids: [first.id, 'gone', first.id, second.id], active: 'gone' }), {
+    tabs: [{ id: first.id, connection: first }, { id: second.id, connection: second }], active: second.id,
+  });
+  assert.deepEqual(restoreTabs(profile, { ids: {} }), { tabs: [], active: null });
+});
+
+test('saves and restores distinct instances of the same connection independently', () => {
+  const firstTab = { id: '10000000-0000-4000-8000-000000000001', connection: first };
+  const secondTab = { id: '10000000-0000-4000-8000-000000000002', connection: first };
+  const otherTab = { id: '10000000-0000-4000-8000-000000000003', connection: second };
+  const openTabs = [firstTab, secondTab, otherTab];
+  const saved = savedTabs(openTabs, secondTab.id);
+  assert.deepEqual(restoreTabs(profile, saved), { tabs: openTabs, active: secondTab.id });
+  assert.deepEqual(connectionTabs(openTabs, first.id), [firstTab, secondTab]);
+  assert.deepEqual(restoreTabs(profile, savedTabs(openTabs.slice(1), secondTab.id)),
+    { tabs: [secondTab, otherTab], active: secondTab.id });
+  assert.deepEqual(restoreTabs({ ...profile, connections: [second] }, saved), { tabs: [otherTab], active: otherTab.id });
+  assert.deepEqual(restoreTabs(profile, { tabs: [...saved.tabs, saved.tabs[0], null] }).tabs, openTabs);
 });

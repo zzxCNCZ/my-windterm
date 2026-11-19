@@ -111,6 +111,7 @@ async fn select_profile_folder(
 async fn start_session(
     sessions: State<'_, Sessions>,
     id: String,
+    tab_id: String,
     connection: Connection,
     cols: u16,
     rows: u16,
@@ -118,7 +119,7 @@ async fn start_session(
 ) -> Result<(), String> {
     let sessions = sessions.inner().clone();
     blocking(move || {
-        sessions.start(id, connection, cols, rows, move |event| {
+        sessions.start(id, &tab_id, connection, cols, rows, move |event| {
             events.send(event).is_ok()
         })
     })

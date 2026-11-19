@@ -19,14 +19,14 @@ export function newId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export function makeTerminal({ parent, connection, invoke, changed, directoryChanged, outlineChanged, searchChanged, report, numbers, semanticColors, appearance, remoteFiles }) {
+export function makeTerminal({ parent, id: tabId, connection, invoke, changed, directoryChanged, outlineChanged, searchChanged, report, numbers, semanticColors, appearance, remoteFiles }) {
   const pane = document.createElement('div');
   const gutter = document.createElement('div');
   const host = document.createElement('div');
   pane.className = 'terminal-pane';
   pane.hidden = true;
   pane.setAttribute('role', 'tabpanel');
-  pane.id = `terminal-${connection.id}`;
+  pane.id = `terminal-${tabId}`;
   host.className = 'terminal-host';
   gutter.className = 'gutter';
   gutter.setAttribute('aria-hidden', 'true');
@@ -42,6 +42,7 @@ export function makeTerminal({ parent, connection, invoke, changed, directoryCha
   term.loadAddon(fit);
   let opened = false, runtime = null, input = Promise.resolve(), gutterFrame = 0;
   let lastGutter = '', interactive = false;
+  let starting, stopping;
   const outline = makeOutline(term, () => Boolean(runtime && interactive), () => {
     outlineChanged(session);
     colors.schedule();
@@ -50,7 +51,7 @@ export function makeTerminal({ parent, connection, invoke, changed, directoryCha
   colors.setPalette(appearance.colors);
   const search = makeTerminalSearch(term, () => searchChanged(session));
   const session = {
-    connection, liveConnection: null, state: 'idle', pane, sftpReady: false, directory: null, outline, search, remoteFiles,
+    id: tabId, connection, liveConnection: null, state: 'idle', pane, sftpReady: false, directory: null, outline, search, remoteFiles,
     get runtimeId() { return session.state === 'running' ? runtime : null; },
     show(visible, focus = false) {
       pane.hidden = !visible;
@@ -110,7 +111,8 @@ export function makeTerminal({ parent, connection, invoke, changed, directoryCha
         }
       };
       try {
-        await invoke('start_session', { id, connection: session.liveConnection, cols: term.cols, rows: term.rows, events });
+        starting = invoke('start_session', { id, tabId, connection: session.liveConnection, cols: term.cols, rows: term.rows, events });
+        await starting;
         if (runtime === id) {
           session.state = 'running';
           changed();
@@ -132,19 +134,28 @@ export function makeTerminal({ parent, connection, invoke, changed, directoryCha
           term.writeln(`\r\n[${t('无法启动 SSH：')}${String(error).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')}]`);
         }
         report(error);
+      } finally {
+        starting = undefined;
       }
     },
     async disconnect() {
+      if (starting) {
+        try { await starting; } catch { return; }
+      }
+      if (stopping) return stopping;
       if (session.state !== 'running') return;
       const id = runtime;
       session.state = 'stopping';
-      changed();
       try {
-        await invoke('stop_session', { id });
+        stopping = invoke('stop_session', { id });
+        changed();
+        await stopping;
       } catch (error) {
         if (runtime === id) session.state = 'running';
         changed();
         throw error;
+      } finally {
+        stopping = undefined;
       }
     },
     send(text) { sendText(text); },

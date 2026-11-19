@@ -116,7 +116,7 @@ fn ssh_args(connection: &Connection, interactive: bool) -> Vec<String> {
     args
 }
 
-fn ssh_terminal_args(connection: &Connection) -> Vec<String> {
+fn ssh_terminal_args(connection: &Connection, tab_id: &str) -> Vec<String> {
     let mut args = ssh_args(connection, true);
     if cfg!(target_os = "macos") && connection.password.is_some() {
         args.extend(
@@ -134,7 +134,7 @@ fn ssh_terminal_args(connection: &Connection) -> Vec<String> {
             "new-session".into(),
             "-A".into(),
             "-s".into(),
-            format!("my-windterm-{}", connection.id.to_ascii_lowercase()),
+            format!("my-windterm-{}", tab_id.to_ascii_lowercase()),
         ]);
     }
     args
@@ -153,13 +153,17 @@ impl Sessions {
     pub fn start(
         &self,
         id: String,
+        tab_id: &str,
         mut connection: Connection,
         cols: u16,
         rows: u16,
         emit: impl FnMut(SessionEvent) -> bool + Send + 'static,
     ) -> Result<(), String> {
         connection.validate()?;
-        let args = ssh_terminal_args(&connection);
+        if !valid_id(tab_id) {
+            return Err("终端标签 ID 无效。".into());
+        }
+        let args = ssh_terminal_args(&connection, tab_id);
         let password = connection.password.take().map(Zeroizing::new);
         self.launch_pty(id, args, size(cols, rows), password, emit)
     }
@@ -600,7 +604,8 @@ mod tests {
 
     #[test]
     fn terminal_uses_pty_host_verification_and_stable_tmux_name() {
-        let args = ssh_terminal_args(&connection());
+        let connection = connection();
+        let args = ssh_terminal_args(&connection, &connection.id);
         assert!(args.iter().any(|arg| arg == "-oStrictHostKeyChecking=ask"));
         assert!(args.iter().any(|arg| arg == "-oServerAliveInterval=30"));
         assert!(
@@ -617,6 +622,10 @@ mod tests {
                 .map(String::from)
             )
         );
+        let other = "00000000-0000-4000-8000-000000000001";
+        let other_args = ssh_terminal_args(&connection, other);
+        assert_ne!(args.last(), other_args.last());
+        assert_eq!(other_args, ssh_terminal_args(&connection, other));
     }
 
     #[cfg(target_os = "macos")]
@@ -739,7 +748,7 @@ mod tests {
         };
         let config_path = client_config.to_string_lossy().into_owned();
         let mut args = vec!["-F".into(), config_path.clone()];
-        args.extend(ssh_terminal_args(&connection));
+        args.extend(ssh_terminal_args(&connection, &connection.id));
         let (sender, receiver) = mpsc::channel();
         sessions
             .launch_pty(
@@ -785,8 +794,19 @@ mod tests {
         let sftp_id = "00000000-0000-4000-8000-000000000001".to_owned();
         let (sender, receiver) = mpsc::channel();
         sessions
-            .launch_pty(sftp_id.clone(), args, size(90, 30), None, move |event| {
-                sender.send(event).is_ok()
+            .launch_pty(
+                sftp_id.clone(),
+                args.clone(),
+                size(90, 30),
+                None,
+                move |event| sender.send(event).is_ok(),
+            )
+            .unwrap();
+        let other_id = "00000000-0000-4000-8000-000000000002".to_owned();
+        let (other_sender, other_receiver) = mpsc::channel();
+        sessions
+            .launch_pty(other_id.clone(), args, size(90, 30), None, move |event| {
+                other_sender.send(event).is_ok()
             })
             .unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -799,15 +819,18 @@ mod tests {
                 .unwrap()
                 .unwrap();
             let socket = sessions.control_socket(&sftp_id).unwrap();
+            tokio::time::timeout(Duration::from_secs(10), sessions.wait_for_sftp(&other_id))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_ne!(socket, sessions.control_socket(&other_id).unwrap());
             let permissions = fs::metadata(socket.parent().unwrap())
                 .unwrap()
                 .permissions();
             assert_eq!(permissions.mode() & 0o077, 0);
             crate::sftp::tests::exercise(socket, &local, &remote).await;
         });
-        sessions
-            .input(&sftp_id, &STANDARD.encode("exit\n"))
-            .unwrap();
+        sessions.stop(&sftp_id).unwrap();
         loop {
             if matches!(
                 receiver.recv_timeout(Duration::from_secs(10)).unwrap(),
@@ -817,6 +840,18 @@ mod tests {
             }
         }
         assert!(sessions.control_socket(&sftp_id).is_err());
+        let survivor = "printf 'TAB-%s\\n' 'SURVIVED'; exit\n";
+        sessions
+            .input(&other_id, &STANDARD.encode(survivor))
+            .unwrap();
+        let mut output = Vec::new();
+        while let SessionEvent::Data { data, .. } = other_receiver
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
+        {
+            output.extend(STANDARD.decode(data).unwrap());
+        }
+        assert!(String::from_utf8_lossy(&output).contains("TAB-SURVIVED"));
         let mut request = SyncRequest {
             connection,
             local_dir: local.clone(),

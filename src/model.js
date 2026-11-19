@@ -19,8 +19,25 @@ export function withoutGroup(profile, id) {
 
 export function restoreTabs(profile, saved) {
   const available = new Map(profile.connections.map(connection => [connection.id, connection]));
-  const ids = Array.isArray(saved?.ids) ? saved.ids : [];
-  const connections = [...new Set(ids)].filter(id => available.has(id)).slice(0, 24).map(id => available.get(id));
-  const active = connections.some(connection => connection.id === saved?.active) ? saved.active : connections.at(-1)?.id ?? null;
-  return { connections, active };
+  const recorded = Array.isArray(saved?.tabs) ? saved.tabs
+    : Array.isArray(saved?.ids) ? saved.ids.map(id => ({ id, connectionId: id })) : [];
+  const tabs = [];
+  const seen = new Set();
+  for (const item of recorded) {
+    const connection = available.get(item?.connectionId);
+    if (!connection || typeof item.id !== 'string' || seen.has(item.id)) continue;
+    if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(item.id)) continue;
+    tabs.push({ id: item.id, connection });
+    seen.add(item.id);
+    if (tabs.length === 24) break;
+  }
+  return { tabs, active: seen.has(saved?.active) ? saved.active : tabs.at(-1)?.id ?? null };
+}
+
+export function savedTabs(sessions, active) {
+  return { tabs: [...sessions].map(session => ({ id: session.id, connectionId: session.connection.id })), active };
+}
+
+export function connectionTabs(sessions, connectionId) {
+  return [...sessions].filter(session => session.connection.id === connectionId);
 }
