@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            bundle: dmg
+            name: macos-arm64
+            extension: dmg
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
+            name: windows-x64
+            extension: exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Set up Rust
+        run: rustup show && rustup target add "${{ matrix.target }}"
+      - name: Verify tag and application versions
+        run: node scripts/check-release-version.mjs
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+      - name: Build installer
+        run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}/*.${{ matrix.extension }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+      - name: Publish both installers on GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          mac=(installers/macos-arm64/*.dmg)
+          win=(installers/windows-x64/*.exe)
+          [[ ${#mac[@]} -eq 1 && ${#win[@]} -eq 1 ]]
+          mv "${mac[0]}" "My-WindTerm-${GITHUB_REF_NAME}-macos-arm64.dmg"
+          mv "${win[0]}" "My-WindTerm-${GITHUB_REF_NAME}-windows-x64-setup.exe"
+          sha256sum My-WindTerm-* > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" My-WindTerm-* SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "My WindTerm $GITHUB_REF_NAME" --generate-notes

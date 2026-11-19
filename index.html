@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1b1b1b">
+    <title>My WindTerm</title>
+  </head>
+  <body>
+    <main class="workspace">
+      <nav id="menubar" class="menubar" aria-label="菜单栏"></nav>
+      <div class="main-area" id="main-area">
+        <aside class="panel filer" id="filer" aria-label="文件管理">
+          <div class="panel-header"><span class="filer-title"><i class="square periwinkle"></i> Filer <small id="filer-host"></small></span><button data-action="toggle-filer" title="隐藏文件栏" aria-label="隐藏文件栏">×</button></div>
+          <div class="filer-tabs" aria-label="文件位置">
+            <button data-action="filer-local" aria-pressed="true"><i class="square periwinkle"></i> 本地</button>
+            <button data-action="filer-remote" aria-pressed="false"><i class="square blue"></i> 远端</button>
+          </div>
+          <div class="pathbar">
+            <input id="filer-path" aria-label="目录路径" placeholder="目录路径" spellcheck="false">
+            <button data-action="filer-up" aria-label="上一级" title="上一级">↑</button>
+            <button data-action="filer-refresh" aria-label="刷新目录" title="刷新目录">⟳</button>
+            <button id="filer-menu" aria-label="文件操作" title="文件操作" aria-haspopup="menu">⋮</button>
+          </div>
+          <div class="file-head"><span>Name</span><span>Modified</span></div>
+          <div id="filer-entries" class="scroll" aria-label="文件列表"></div>
+          <div class="panel-footer filer-footer"><span id="filer-summary" aria-live="polite">— items</span><button data-action="filer-upload" title="上传文件" aria-label="上传文件">⇧</button><button data-action="filer-download" title="下载所选文件" aria-label="下载所选文件">⇩</button><button data-action="filer-follow" title="自动跟随终端目录（F9）" aria-label="自动跟随终端目录" aria-keyshortcuts="F9" aria-pressed="false"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true"><path d="M8 12.5c-1-1.6-3.5-4.4-3.5-6.5a3.5 3.5 0 0 1 7 0c0 2.1-2.5 4.9-3.5 6.5Z"/><circle cx="8" cy="6" r="1.2"/><path d="M4 11.5c-3 1.3-.6 3 4 3s7-1.7 4-3"/></svg></button></div>
+        </aside>
+        <div class="splitter vertical filer-splitter" data-split="filer" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="filer" aria-label="文件栏宽度" title="拖动调整文件栏宽度，双击恢复默认"></div>
+        <section class="center" aria-label="终端工作区">
+          <div class="tabbar"><div id="tabs" role="tablist" aria-label="SSH 标签"></div><button data-action="new-connection" title="新建连接" aria-label="新建连接">＋</button><button id="tab-menu" aria-label="标签菜单" title="标签菜单">≡</button></div>
+          <div class="session-bar">
+            <button data-action="new-connection" title="新建连接" aria-label="新建连接">⊞</button>
+            <button data-action="reconnect" title="连接 / 重连" aria-label="连接或重连">⟳</button>
+            <button data-action="disconnect" title="断开连接" aria-label="断开连接">⊗</button>
+            <span class="divider"></span>
+            <div id="breadcrumb" class="breadcrumb"></div>
+            <button data-action="sync" title="目录同步" aria-label="目录同步">⇄</button>
+          </div>
+          <form id="terminal-search" class="terminal-search" role="search" aria-label="搜索当前终端" hidden>
+            <input id="terminal-query" type="search" aria-label="搜索终端内容" placeholder="搜索命令或输出…" maxlength="256" autocomplete="off" spellcheck="false">
+            <button type="button" data-action="terminal-match-case" aria-label="区分大小写" aria-pressed="false" title="区分大小写">Aa</button>
+            <span id="terminal-search-count" role="status"></span>
+            <button type="button" data-action="terminal-find-prev" aria-label="上一个匹配" title="上一个（Shift+Enter）">↑</button>
+            <button type="button" data-action="terminal-find-next" aria-label="下一个匹配" title="下一个（Enter）">↓</button>
+            <button type="button" data-action="terminal-close-search" aria-label="关闭终端搜索" title="关闭搜索（Esc）">×</button>
+          </form>
+          <div id="terminal-area" class="terminal-area">
+            <section id="welcome" class="welcome" aria-label="欢迎">
+              <div class="welcome-inner">
+                <div class="prompt"><span class="line-no">1</span><span class="prompt-host">my-windterm</span><span class="prompt-path">~</span><span class="prompt-cmd">ssh workspace</span></div>
+                <div class="welcome-body">
+                  <div class="welcome-kicker">SSH WORKSPACE <span>/</span> LOCAL PROFILE</div>
+                  <h1>My WindTerm<span>.</span></h1>
+                  <p>新建 SSH 连接，或从右侧会话树打开已保存的主机。</p>
+                  <div class="welcome-actions">
+                    <button class="primary" data-action="new-connection">＋ 新建 SSH 连接</button>
+                    <button class="secondary" data-action="settings">⚙ 偏好设置</button>
+                  </div>
+                  <div class="keyboard-help"><kbd>⌘ N</kbd> 新建连接 <kbd>⌘ F</kbd> 搜索终端</div>
+                </div>
+                <div class="prompt end-prompt"><span class="line-no">2</span><span class="prompt-host">my-windterm</span><span class="prompt-path">~</span><span class="cursor-block" aria-hidden="true"></span></div>
+              </div>
+            </section>
+          </div>
+        </section>
+        <div class="splitter vertical sessions-splitter" data-split="sessions" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="sessions" aria-label="会话栏宽度" title="拖动调整会话栏宽度，双击恢复默认"></div>
+        <aside class="panel sessions" id="sessions" aria-label="会话管理">
+          <div class="panel-header"><span><i class="square blue"></i> Session</span><span><button data-action="new-group" aria-label="新建分组" title="新建分组">＋</button><button data-action="settings" aria-label="配置设置" title="配置设置">⚙</button><button data-action="toggle-sessions" aria-label="隐藏会话栏" title="隐藏会话栏">×</button></span></div>
+          <div class="filter"><input id="session-filter" aria-label="筛选会话" placeholder="Filter" spellcheck="false"></div>
+          <div id="tree" class="tree scroll"></div>
+          <div class="splitter horizontal" data-split="tree" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="tree" aria-label="会话树高度" title="拖动调整 Session / Outline 高度，双击恢复默认"></div>
+          <section class="outline-panel" aria-label="终端命令大纲">
+            <div class="panel-header outline-header"><span><i class="square sky"></i> Outline</span><button id="outline-menu" aria-haspopup="menu" aria-label="大纲操作" title="大纲操作">⚙</button></div>
+            <div class="filter"><input id="outline-filter" aria-label="筛选终端命令" placeholder="Filter" spellcheck="false"></div>
+            <div id="outline" class="outline scroll"></div>
+          </section>
+        </aside>
+      </div>
+      <section id="dock" class="dock" aria-label="发送和传输">
+        <div class="splitter horizontal" data-split="dock" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="dock" aria-label="底部面板高度" title="拖动调整底部面板高度，双击恢复默认"></div>
+        <div class="dock-tabs">
+          <div role="tablist" aria-label="底部面板">
+            <button data-action="sender-pane" role="tab" aria-controls="sender" aria-selected="false"><i class="square purple"></i> Sender</button>
+            <button data-action="transfer-pane" role="tab" aria-controls="transfer" aria-selected="true"><i class="square cyan"></i> Transfer</button>
+          </div>
+          <button data-action="toggle-dock" title="折叠面板" aria-label="折叠面板">×</button>
+        </div>
+        <form id="sender" class="sender" role="tabpanel" hidden>
+          <label for="sender-input">发送到当前终端</label><input id="sender-input" spellcheck="false" placeholder="输入要发送的文本">
+          <label class="check"><input id="sender-enter" type="checkbox"> 携带回车</label><button class="secondary" type="submit">发送</button>
+        </form>
+        <div id="transfer" class="transfer" role="tabpanel">
+          <div class="transfer-header"><span id="transfer-state">暂无传输任务</span><progress id="file-progress" aria-label="SFTP 传输进度" hidden></progress><button data-action="cancel-sync" hidden>取消</button><button class="secondary" data-action="sync">⇄ 目录同步</button></div>
+          <pre id="transfer-log" class="scroll" tabindex="0" aria-label="同步输出"></pre>
+        </div>
+      </section>
+      <div class="shortcut-bar" aria-label="常用操作">
+        <span class="shortcut-logo" aria-hidden="true">◩</span><span class="category">File</span>
+        <button data-action="filer-pick"><b class="blue">■</b> Folder</button><button data-action="sync"><b class="cyan">⇄</b> Sync</button>
+        <span class="category">Session</span><button data-action="new-connection"><b class="pink">●</b> New SSH</button><button data-action="new-group"><b class="amber">◆</b> Group</button><button data-action="reconnect"><b class="green">⟳</b> Reconnect</button>
+        <span class="category">Profile</span><button data-action="settings"><b class="periwinkle">⚙</b> Config</button><button data-action="reload-profile"><b class="blue">↻</b> Reload</button>
+      </div>
+      <footer class="statusbar"><span id="status" role="status">Ready</span><span id="status-connection">本地工作区</span><span>UTF-8</span><span class="blue">My WindTerm</span></footer>
+    </main>
+    <div id="copy-notice" class="copy-notice" role="status"></div>
+    <div id="popup" class="popup" role="menu" hidden></div>
+    <dialog id="editor" aria-labelledby="editor-title">
+      <form id="editor-form">
+        <header class="dialog-title"><h2 id="editor-title"></h2><button type="button" data-action="close-dialog" aria-label="关闭">×</button></header>
+        <div id="editor-fields" class="dialog-fields"></div>
+        <p id="editor-error" class="form-error" role="alert" hidden></p>
+        <footer id="editor-buttons" class="dialog-buttons"></footer>
+      </form>
+    </dialog>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
