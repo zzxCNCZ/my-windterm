@@ -11,7 +11,7 @@ const versions = [
   cargoPackage?.match(/^version\s*=\s*"([^"]+)"/m)?.[1],
 ];
 const version = versions[0];
-const tag = process.env.GITHUB_REF_NAME;
+const tag = process.env.RELEASE_TAG || (process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : '');
 if (!/^\d+\.\d+\.\d+$/.test(version) || versions.some(candidate => candidate !== version) || (tag && tag !== version)) {
   throw new Error(`Version mismatch: application versions ${versions.join(', ')}; Git tag ${tag || '(none)'}.`);
 }

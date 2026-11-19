@@ -2,18 +2,66 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release.yml'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing release tag (for example 1.0.0)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: my-windterm-release
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_TAG: ${{ inputs.version }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then
+            tag="$MANUAL_TAG"
+          elif [[ "$GITHUB_REF_TYPE" = tag ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$(jq -er .version src-tauri/tauri.conf.json)"
+          fi
+          [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+            if [[ "$GITHUB_REF_TYPE" = branch && "$GITHUB_EVENT_NAME" = push ]]; then
+              exit 0
+            fi
+            echo "::error::Tag $tag does not exist."
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists."
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
+    if: needs.prepare.outputs.tag != ''
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
@@ -33,6 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -41,7 +90,9 @@ jobs:
       - name: Set up Rust
         run: rustup show && rustup target add "${{ matrix.target }}"
       - name: Verify tag and application versions
-        run: node scripts/check-release-version.mjs
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: node -e "process.env.GITHUB_REF_NAME = process.env.RELEASE_TAG; import('./scripts/check-release-version.mjs')"
       - run: npm ci
       - run: npm test
       - run: npm run build
@@ -55,7 +106,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -67,14 +118,15 @@ jobs:
       - name: Publish both installers on GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         shell: bash
         run: |
           shopt -s nullglob
           mac=(installers/macos-arm64/*.dmg)
           win=(installers/windows-x64/*.exe)
           [[ ${#mac[@]} -eq 1 && ${#win[@]} -eq 1 ]]
-          mv "${mac[0]}" "My-WindTerm-${GITHUB_REF_NAME}-macos-arm64.dmg"
-          mv "${win[0]}" "My-WindTerm-${GITHUB_REF_NAME}-windows-x64-setup.exe"
+          mv "${mac[0]}" "My-WindTerm-${RELEASE_TAG}-macos-arm64.dmg"
+          mv "${win[0]}" "My-WindTerm-${RELEASE_TAG}-windows-x64-setup.exe"
           sha256sum My-WindTerm-* > SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" My-WindTerm-* SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --verify-tag --title "My WindTerm $GITHUB_REF_NAME" --generate-notes
+          gh release create "$RELEASE_TAG" My-WindTerm-* SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "My WindTerm $RELEASE_TAG" --generate-notes
