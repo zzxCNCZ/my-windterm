@@ -2,6 +2,7 @@ import { Channel } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { terminalDirectory } from './terminal-directory.js';
+import { recentContext, selectedContext } from './terminal-context.js';
 import { makeOutline } from './outline.js';
 import { makeTerminalColors } from './terminal-colors.js';
 import { makeTerminalSearch } from './terminal-search.js';
@@ -53,6 +54,8 @@ export function makeTerminal({ parent, id: tabId, connection, invoke, changed, d
   const session = {
     id: tabId, connection, liveConnection: null, state: 'idle', pane, sftpReady: false, directory: null, outline, search, remoteFiles,
     get runtimeId() { return session.state === 'running' ? runtime : null; },
+    aiSelection: () => selectedContext(term),
+    aiRecent: lines => recentContext(term, lines),
     show(visible, focus = false) {
       pane.hidden = !visible;
       if (!visible) { colors.clear(); return; }

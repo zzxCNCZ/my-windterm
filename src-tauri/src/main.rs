@@ -1,3 +1,4 @@
+mod ai;
 #[cfg(target_os = "macos")]
 mod askpass;
 mod config;
@@ -325,6 +326,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::InstallLock::default())
+        .manage(ai::Runs::default())
         .manage(Sessions::default());
     #[cfg(target_os = "macos")]
     let builder = builder.manage(FileTransfers::default());
@@ -336,6 +338,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ai::load_ai_settings,
+            ai::save_ai_settings,
+            ai::test_ai_search,
+            ai::ask_ai,
+            ai::stop_ai,
+            ai::open_ai_source,
             copy_outline_command,
             platform_features,
             updates::check_updates,

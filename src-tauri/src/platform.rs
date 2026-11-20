@@ -1,6 +1,25 @@
 #[cfg(target_os = "macos")]
 pub const SSH: &str = "/usr/bin/ssh";
 
+pub async fn open_browser(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = tokio::process::Command::new("/usr/bin/open");
+    #[cfg(windows)]
+    let mut command = tokio::process::Command::new(system_directory()?.join("rundll32.exe"));
+    #[cfg(windows)]
+    command.arg("url.dll,FileProtocolHandler");
+    let status = command
+        .arg(url)
+        .status()
+        .await
+        .map_err(|error| error.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Unable to open the page.".into())
+    }
+}
+
 #[cfg(windows)]
 pub fn system_directory() -> Result<std::path::PathBuf, String> {
     use std::os::windows::ffi::OsStringExt;

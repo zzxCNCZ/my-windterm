@@ -205,6 +205,27 @@ impl ConfigStore {
         Self { device_dir }
     }
 
+    pub fn ai_settings(&self) -> Result<crate::ai::Settings, String> {
+        match read(&self.device_dir.join("ai.json")) {
+            Ok((settings, _)) => Ok(settings),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                Ok(crate::ai::Settings::default())
+            }
+            Err(error) => Err(format!("读取 AI 设置失败：{error}")),
+        }
+    }
+
+    pub fn save_ai_settings(
+        &self,
+        edit: crate::ai::SettingsEdit,
+    ) -> Result<crate::ai::SettingsView, String> {
+        let settings = self.ai_settings()?.edit(edit)?;
+        fs::create_dir_all(&self.device_dir).map_err(|error| error.to_string())?;
+        write(&self.device_dir.join("ai.json"), &settings, true)
+            .map_err(|error| error.to_string())?;
+        Ok(settings.view())
+    }
+
     fn prefs(&self) -> Result<DevicePrefs, String> {
         match read(&self.device_dir.join("device.json")) {
             Ok((prefs, _)) => Ok(prefs),

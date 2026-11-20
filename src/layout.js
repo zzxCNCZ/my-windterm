@@ -6,10 +6,10 @@ export function installSplitters(load, save) {
     filer: { horizontal: true, sign: 1, min: 162, max: () => main.clientWidth * .35 },
     sessions: { horizontal: true, sign: -1, min: 180, max: () => main.clientWidth * .35 },
     tree: { sign: 1, min: 44, max: () => document.querySelector('#sessions').clientHeight - 175 },
-    dock: { sign: -1, min: 75, max: () => window.innerHeight - 375 },
+    dock: { sign: -1, min: 154, max: () => window.innerHeight - 320 },
   };
   const size = id => {
-    const element = id === 'dock' ? document.querySelector('#dock [role="tabpanel"]:not([hidden])')
+    const element = id === 'dock' ? document.querySelector('.dock-grid')
       : document.getElementById(id);
     return element?.getBoundingClientRect()[panels[id].horizontal ? 'width' : 'height'] ?? 0;
   };

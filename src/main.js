@@ -7,6 +7,8 @@ import { connectionTabs, filterSessions, restoreTabs, savedTabs, withoutGroup } 
 import { makeTerminal, newId } from './terminal.js';
 import { terminalAppearance } from './appearance.js';
 import { editPreferences } from './preferences.js';
+import { makeAiPanel } from './ai-panel.js';
+import { TerminalAiSessions } from './ai-sessions.js';
 import { changeLanguage, localize, t } from './i18n.js';
 import './style.css';
 
@@ -109,8 +111,7 @@ async function saveProfile(next) {
 }
 
 function restoreForFolder(next) {
-  for (const session of tabs.values()) session.dispose();
-  tabs.clear();
+  for (const id of tabs.keys()) removeTab(id);
   activeId = null;
   collapsedGroups.clear();
   applyView(next, true);
@@ -138,6 +139,7 @@ function createTab(connection, id = newId()) {
     directoryChanged: filer.directoryChanged, outlineChanged: scheduleOutline,
     searchChanged: source => { if (searchSession === source) renderSearch(); },
     report, numbers: () => lineNumbers, semanticColors: () => semanticColors, appearance, remoteFiles: platform.remoteFiles });
+  session.aiSessions = new TerminalAiSessions();
   tabs.set(session.id, session);
   return session;
 }
@@ -160,6 +162,7 @@ function removeTab(id) {
   if (!session) return;
   const keys = [...tabs.keys()];
   const index = keys.indexOf(id);
+  aiPanel.closeTerminal(session);
   session.dispose();
   tabs.delete(id);
   if (id === activeId) {
@@ -191,6 +194,7 @@ async function closeTab(id) {
 function render(focus = false) {
   const selected = active();
   filer.setSession(selected);
+  aiPanel.setTerminal(selected);
   find('#welcome').hidden = Boolean(selected);
   const tabNodes = [];
   const counts = new Map();
@@ -227,6 +231,7 @@ function render(focus = false) {
   breadcrumb.replaceChildren(...path.flatMap(item => [element('b', null, '▸'), document.createTextNode(item)]));
   find('#status-connection').textContent = t(selected ? stateLabels[selected.state] : '本地工作区');
   for (const item of each('[data-action="reconnect"]')) item.disabled = !selected || selected.state !== 'idle';
+  find('[data-action="ask-ai"]').disabled = !selected;
   for (const item of each('[data-action="disconnect"]')) item.disabled = selected?.state !== 'running';
   for (const item of each('[data-action="sync"]')) item.disabled = !platform.remoteFiles || (!profile().connections.length && !selected);
   find('#sender button[type="submit"]').disabled = selected?.state !== 'running';
@@ -518,9 +523,16 @@ function confirmDeleteGroup(group) {
   })) fields.querySelector('p').textContent = `移除「${group.name}」？组内连接会移到「未分组」，不会被删除。`;
 }
 
-function settings() {
+async function settings(initialTab = 'general') {
+  if (editor.open) return;
+  const aiConfig = await invoke('load_ai_settings').catch(() => null);
   editPreferences({ editor, form, fields, openEditor, open, view: () => view, selectProfileFolder,
     version: platform.version, checkUpdates: () => invoke('check_updates'), openRelease: url => invoke('open_release_page', { url }),
+    initialTab, aiConfig,
+    async saveAi(edit) {
+      aiPanel.settings(await invoke('save_ai_settings', { edit }));
+    },
+    testAiSearch: edit => invoke('test_ai_search', { edit }),
     installUpdate(version, onProgress) {
       if (activeTransfer || [...tabs.values()].some(session => session.state !== 'idle')) {
         throw new Error('请结束文件传输并断开 SSH 连接后再安装更新。');
@@ -536,6 +548,7 @@ function settings() {
       saveLocal('my-windterm:preferences', preferences);
       saveLocal('my-windterm:semantic-colors', semanticColors);
       changeLanguage(next.language);
+      aiPanel.render();
       for (const session of tabs.values()) session.applyAppearance(appearance);
       renderMenubar();
       render();
@@ -612,7 +625,11 @@ function showDock(pane = dockPane) {
     find(`#${name}`).hidden = pane !== name;
     find(`[data-action="${name}-pane"]`).setAttribute('aria-selected', String(pane === name));
   }
-  find('[data-action="toggle-dock"]').textContent = pane ? '×' : '⌃';
+  const toggle = find('[data-action="toggle-dock"]');
+  toggle.textContent = pane ? '×' : '⌃';
+  toggle.setAttribute('aria-expanded', String(Boolean(pane)));
+  toggle.setAttribute('aria-label', t(pane ? '折叠面板' : '展开底部面板'));
+  toggle.title = toggle.getAttribute('aria-label');
 }
 
 function directoryHelp() {
@@ -742,6 +759,7 @@ async function cancelSync() {
 
 const actions = {
   'new-connection': () => editConnection(), 'new-group': () => editGroup(), settings, sync: () => editSync(),
+  'ai-settings': () => settings('ai'), 'ask-ai': () => aiPanel.focus(active()?.aiSelection()),
   'reload-profile': () => loadProfile(), reconnect: () => active()?.connect(), disconnect: () => active()?.disconnect(),
   'close-tab': () => closeTab(activeId), 'clear-terminal': () => active()?.clear(),
   'filer-up': () => filer.up(), 'filer-refresh': () => filer.refresh(),
@@ -802,7 +820,7 @@ document.addEventListener('keydown', event => {
       event.preventDefault();
       event.stopPropagation();
       closePopup();
-      settings();
+      run(settings);
       return;
     }
     if ((key === 'f' && !event.shiftKey) || (key === 'g' && active())) {
@@ -884,12 +902,25 @@ find('#sender').addEventListener('submit', event => {
   target.send(find('#sender-input').value + (find('#sender-enter').checked ? '\r' : ''));
   find('#sender-input').value = '';
 });
+find('#terminal-area').addEventListener('contextmenu', event => {
+  const session = active();
+  const selection = session?.pane.contains(event.target) && session.aiSelection();
+  if (!selection) return;
+  event.preventDefault();
+  event.stopPropagation();
+  showPopup(session.pane, [['发送选区到 AI', () => aiPanel.focus(selection, session)]], event);
+}, { capture: true });
 window.addEventListener('focus', () => { if (!editor.open && view) void loadProfile({ quiet: true }); });
 const filer = makeFiler({ invoke, open, report, status, transfer: transferFile, showPopup, run, directoryHelp,
   follow: loadLocal('my-windterm:follow-directory') === true,
   saveFollow: value => saveLocal('my-windterm:follow-directory', value) });
 installSplitters(loadLocal('my-windterm:layout'), value => saveLocal('my-windterm:layout', value));
 changeLanguage(preferences.language);
+const aiPanel = makeAiPanel({
+  root: find('#dock'), invoke, showDock: () => showDock(dockPane || 'transfer'), newId,
+});
+aiPanel.render();
+void invoke('load_ai_settings').then(value => aiPanel.settings(value)).catch(() => {});
 renderMenubar();
 render();
 void invoke('platform_features').then(features => { platform = features; }).catch(report).finally(() => loadProfile());

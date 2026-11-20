@@ -204,28 +204,7 @@ pub async fn open_release_page(url: String) -> Result<(), String> {
     if !release_url(&url) {
         return Err("Invalid release URL.".into());
     }
-    let mut command = {
-        #[cfg(target_os = "macos")]
-        {
-            tokio::process::Command::new("/usr/bin/open")
-        }
-        #[cfg(windows)]
-        {
-            tokio::process::Command::new(crate::platform::system_directory()?.join("rundll32.exe"))
-        }
-    };
-    #[cfg(windows)]
-    command.arg("url.dll,FileProtocolHandler");
-    let status = command
-        .arg(url)
-        .status()
-        .await
-        .map_err(|error| error.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("Unable to open the release page.".into())
-    }
+    crate::platform::open_browser(&url).await
 }
 
 #[cfg(test)]

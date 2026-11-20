@@ -35,6 +35,7 @@
             <button data-action="disconnect" title="断开连接" aria-label="断开连接">⊗</button>
             <span class="divider"></span>
             <div id="breadcrumb" class="breadcrumb"></div>
+            <button data-action="ask-ai" class="terminal-ask" title="询问 AI" aria-label="询问 AI">AI</button>
             <button data-action="sync" title="目录同步" aria-label="目录同步">⇄</button>
           </div>
           <form id="terminal-search" class="terminal-search" role="search" aria-label="搜索当前终端" hidden>
@@ -77,22 +78,50 @@
           </section>
         </aside>
       </div>
-      <section id="dock" class="dock" aria-label="发送和传输">
+      <section id="dock" class="dock" aria-label="底部面板">
         <div class="splitter horizontal" data-split="dock" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="dock" aria-label="底部面板高度" title="拖动调整底部面板高度，双击恢复默认"></div>
-        <div class="dock-tabs">
-          <div role="tablist" aria-label="底部面板">
-            <button data-action="sender-pane" role="tab" aria-controls="sender" aria-selected="false"><i class="square purple"></i> Sender</button>
-            <button data-action="transfer-pane" role="tab" aria-controls="transfer" aria-selected="true"><i class="square cyan"></i> Transfer</button>
-          </div>
-          <button data-action="toggle-dock" title="折叠面板" aria-label="折叠面板">×</button>
-        </div>
-        <form id="sender" class="sender" role="tabpanel" hidden>
-          <label for="sender-input">发送到当前终端</label><input id="sender-input" spellcheck="false" placeholder="输入要发送的文本">
-          <label class="check"><input id="sender-enter" type="checkbox"> 携带回车</label><button class="secondary" type="submit">发送</button>
-        </form>
-        <div id="transfer" class="transfer" role="tabpanel">
-          <div class="transfer-header"><span id="transfer-state">暂无传输任务</span><progress id="file-progress" aria-label="SFTP 传输进度" hidden></progress><button data-action="cancel-sync" hidden>取消</button><button class="secondary" data-action="sync">⇄ 目录同步</button></div>
-          <pre id="transfer-log" class="scroll" tabindex="0" aria-label="同步输出"></pre>
+        <div class="dock-grid">
+          <section class="dock-panel dock-transfer" aria-label="文件传输">
+            <div class="dock-heading dock-tabs" role="tablist" aria-label="发送和传输">
+              <button data-action="transfer-pane" role="tab" aria-controls="transfer" aria-selected="true"><i class="square cyan"></i> Transfer</button>
+              <button data-action="sender-pane" role="tab" aria-controls="sender" aria-selected="false"><i class="square purple"></i> Sender</button>
+            </div>
+            <div class="dock-body dock-file-body">
+              <div id="transfer" class="transfer" role="tabpanel">
+                <div class="transfer-header"><span id="transfer-state">暂无传输任务</span><progress id="file-progress" aria-label="SFTP 传输进度" hidden></progress><button data-action="cancel-sync" hidden>取消</button><button class="secondary" data-action="sync">⇄ 目录同步</button></div>
+                <pre id="transfer-log" class="scroll" tabindex="0" aria-label="同步输出"></pre>
+              </div>
+              <form id="sender" class="sender" role="tabpanel" hidden>
+                <label for="sender-input">发送到当前终端</label><input id="sender-input" spellcheck="false" placeholder="输入要发送的文本">
+                <div class="sender-controls"><label class="check"><input id="sender-enter" type="checkbox"> 携带回车</label><button class="secondary" type="submit">发送</button></div>
+              </form>
+            </div>
+          </section>
+          <section class="dock-panel dock-chat" aria-label="AI 问答">
+            <header class="dock-heading panel-header"><span><i class="square blue"></i> AI 问答</span><button type="button" data-action="ai-settings" title="AI 设置" aria-label="AI 设置">⚙</button></header>
+            <div class="dock-body ai-body">
+              <div id="ai-messages" class="ai-messages scroll" role="log" aria-label="问答消息" tabindex="0"></div>
+              <div id="ai-status" class="ai-status" role="status" hidden></div>
+              <div id="ai-preview" class="ai-preview scroll" aria-label="终端上下文预览" hidden><pre id="ai-preview-text"></pre></div>
+              <form id="ai-form" class="ai-form">
+                <div class="ai-options">
+                  <label class="check"><input id="ai-include-context" type="checkbox" checked> 终端上下文</label>
+                  <button type="button" id="ai-preview-toggle" aria-controls="ai-preview" aria-expanded="false">预览</button>
+                  <button type="button" id="ai-clear-selection" hidden>移除选区</button>
+                  <label class="ai-search-option" title="联网搜索公开资料"><input id="ai-use-search" type="checkbox" role="switch" checked> <span>联网搜索</span></label>
+                </div>
+                <div class="ai-composer">
+                  <textarea id="ai-input" rows="1" maxlength="4000" spellcheck="false" aria-label="向 AI 提问" placeholder="询问当前终端的日志或输出…"></textarea>
+                  <button type="submit" class="primary" id="ai-send">提问</button>
+                  <button type="button" class="secondary" id="ai-stop" hidden>停止</button>
+                </div>
+              </form>
+            </div>
+          </section>
+          <section class="dock-panel dock-history" aria-label="AI 会话记录">
+            <header class="dock-heading panel-header"><span><i class="square purple"></i> AI 会话</span><span><button type="button" id="ai-new" title="新建问答会话" aria-label="新建问答会话">＋ 新建</button><button type="button" data-action="toggle-dock" aria-expanded="true" title="折叠面板" aria-label="折叠面板">×</button></span></header>
+            <div id="ai-history" class="dock-body ai-history scroll"></div>
+          </section>
         </div>
       </section>
       <div class="shortcut-bar" aria-label="常用操作">

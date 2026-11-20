@@ -1,10 +1,11 @@
 import { ansiKeys, coreColors, fonts, presets, terminalAppearance } from './appearance.js';
 import { formatSize } from './filer.js';
 import { t } from './i18n.js';
+import { defaultContextLines } from './terminal-context.js';
 
 const labels = { background: '背景', foreground: '文字', cursor: '光标', selectionBackground: '选区' };
 
-export function editPreferences({ editor, form, fields, openEditor, open, view, selectProfileFolder, preferences, save, version, checkUpdates, installUpdate, openRelease }) {
+export function editPreferences({ editor, form, fields, openEditor, open, view, selectProfileFolder, preferences, save, version, checkUpdates, installUpdate, openRelease, initialTab, aiConfig, saveAi, testAiSearch }) {
   function paintPath() {
     fields.querySelector('.config-path').textContent = view()?.profilePath || t('未读取到配置');
     form.querySelector('[value="migrate"]').disabled = !view();
@@ -12,7 +13,7 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
   }
   const close = () => { editor.classList.remove('preferences-dialog'); };
   if (!openEditor('偏好设置', `
-    <nav class="preferences-nav" aria-label="偏好设置"><button type="button" class="secondary" data-prefs-tab="general" aria-pressed="true">通用</button><button type="button" class="secondary" data-prefs-tab="appearance" aria-pressed="false">终端外观</button></nav>
+    <nav class="preferences-nav" aria-label="偏好设置"><button type="button" class="secondary" data-prefs-tab="general" aria-pressed="true">通用</button><button type="button" class="secondary" data-prefs-tab="appearance" aria-pressed="false">终端外观</button><button type="button" class="secondary" data-prefs-tab="ai" aria-pressed="false">AI</button><button type="button" class="secondary" data-prefs-tab="tools" aria-pressed="false">AI 工具</button></nav>
     <section class="preferences-section" data-prefs-page="general">
       <label>界面语言<select name="language"><option value="zh-CN">简体中文</option><option value="en">English</option><option value="system">跟随系统</option></select></label>
       <div class="preferences-rule"></div>
@@ -57,8 +58,36 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
         <div>$ <span class="preview-cursor" aria-hidden="true"></span></div>
       </div>
     </section>
+    <section class="preferences-section" data-prefs-page="ai" hidden>
+      <label>模型 API 地址<input name="aiBaseUrl" spellcheck="false" maxlength="2048" placeholder="https://api.openai.com/v1"></label>
+      <div class="form-row">
+        <label>模型名称<input name="aiModel" spellcheck="false" maxlength="200" autocomplete="off"></label>
+        <label>最近终端行数<input name="aiContextLines" type="number" min="10" max="500" required></label>
+      </div>
+      <p class="hint">使用支持 Chat Completions 的模型。选区优先，较长的片段会按大小截取。</p>
+      <label>模型 API Key<input name="aiApiKey" type="password" autocomplete="off" maxlength="4096"></label>
+      <label class="check"><input type="checkbox" name="clearAiKey"> 清除模型密钥</label>
+      <p class="hint">发送问题时，附带的终端片段会发给配置的模型。密钥保存在本机，问答会话随终端标签关闭而清除。</p>
+      <p id="ai-settings-error" class="hint" hidden>无法读取 AI 设置。</p>
+    </section>
+    <section class="preferences-section" data-prefs-page="tools" hidden>
+      <strong>联网搜索 · Brave Search</strong>
+      <label class="check"><input type="checkbox" name="aiSearchEnabled"> 启用联网搜索工具</label>
+      <label>Brave Search API Key<input name="aiBraveKey" type="password" autocomplete="off" maxlength="4096"></label>
+      <label class="check"><input type="checkbox" name="clearBraveKey"> 清除 Brave 密钥</label>
+      <div class="preferences-rule"></div>
+      <label class="check"><input type="checkbox" name="aiSearchProxyEnabled"> 启用联网搜索代理</label>
+      <label id="ai-search-proxy">代理地址<input name="aiSearchProxy" spellcheck="false" maxlength="4096" autocomplete="off" placeholder="http://127.0.0.1:7890"></label>
+      <p class="hint">代理仅用于联网搜索，支持 HTTP、HTTPS、SOCKS5 和 SOCKS5H。</p>
+      <div class="preferences-actions"><button type="submit" value="test-search" class="secondary">测试联网搜索</button></div>
+      <p id="ai-search-result" class="hint" role="status"></p>
+    </section>
     <p class="hint">应用到当前及新建终端；语言和外观保存在本机，不随连接配置同步。</p>`,
   [['取消'], ['保存', 'save', true]], async intent => {
+    if (intent === 'test-search') {
+      await testSearch();
+      return false;
+    }
     if (intent === 'check-update') {
       await checkForUpdates();
       return false;
@@ -68,6 +97,7 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
       return false;
     }
     if (intent === 'save') {
+      await saveAiFields();
       save({ language: form.elements.language.value, appearance: readAppearance(),
         semanticColors: form.elements.semanticColors.checked });
       return;
@@ -146,14 +176,65 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
   });
   editor.addEventListener('close', () => { listener.abort(); close(); }, { once: true });
   form.addEventListener('my-windterm:done', () => { if (editor.open) paintPath(); }, { signal: listener.signal });
-  for (const button of fields.querySelectorAll('[data-prefs-tab]')) {
-    button.addEventListener('click', () => {
-      for (const tab of fields.querySelectorAll('[data-prefs-tab]')) tab.setAttribute('aria-pressed', String(tab === button));
-      for (const page of fields.querySelectorAll('[data-prefs-page]')) page.hidden = page.dataset.prefsPage !== button.dataset.prefsTab;
-    });
+  const preferenceTabs = fields.querySelectorAll('[data-prefs-tab]');
+  function selectTab(name) {
+    for (const tab of preferenceTabs) tab.setAttribute('aria-pressed', String(tab.dataset.prefsTab === name));
+    for (const page of fields.querySelectorAll('[data-prefs-page]')) page.hidden = page.dataset.prefsPage !== name;
   }
+  for (const button of preferenceTabs) {
+    button.addEventListener('click', () => selectTab(button.dataset.prefsTab));
+  }
+  selectTab(initialTab || 'general');
   const names = [...coreColors, ...ansiKeys];
   const value = key => form.elements.namedItem(key);
+  value('aiBaseUrl').value = aiConfig?.baseUrl ?? '';
+  value('aiModel').value = aiConfig?.model ?? '';
+  value('aiContextLines').value = aiConfig?.contextLines ?? defaultContextLines;
+  value('aiApiKey').placeholder = aiConfig?.hasApiKey ? t('已保存，留空保留') : '';
+  value('aiBraveKey').placeholder = aiConfig?.hasBraveKey ? t('已保存，留空保留') : '';
+  value('aiSearchEnabled').checked = aiConfig?.searchEnabled ?? true;
+  value('aiSearchProxyEnabled').checked = aiConfig?.searchProxyEnabled ?? false;
+  value('aiSearchProxy').value = aiConfig?.searchProxy ?? '';
+  const paintProxy = () => { fields.querySelector('#ai-search-proxy').hidden = !value('aiSearchProxyEnabled').checked; };
+  value('aiSearchProxyEnabled').addEventListener('change', paintProxy);
+  paintProxy();
+  const searchResult = fields.querySelector('#ai-search-result');
+  if (!aiConfig) {
+    for (const field of fields.querySelectorAll('[data-prefs-page="ai"] input, [data-prefs-page="tools"] input, [value="test-search"]')) field.disabled = true;
+    fields.querySelector('#ai-settings-error').hidden = false;
+    searchResult.textContent = t('无法读取 AI 设置。');
+  }
+  function readSearchFields() {
+    return {
+      braveKey: value('clearBraveKey').checked ? '' : value('aiBraveKey').value.trim() || null,
+      searchEnabled: value('aiSearchEnabled').checked,
+      searchProxyEnabled: value('aiSearchProxyEnabled').checked,
+      searchProxy: value('aiSearchProxy').value.trim(),
+    };
+  }
+  async function testSearch() {
+    searchResult.textContent = t('正在测试联网搜索…');
+    try {
+      await testAiSearch(readSearchFields());
+      searchResult.textContent = t('联网搜索连接成功。');
+    } catch (error) {
+      const detail = t(error instanceof Error ? error.message : String(error));
+      searchResult.textContent = `${t('联网搜索测试失败：')}${detail}`;
+    }
+  }
+  async function saveAiFields() {
+    if (!aiConfig) return;
+    const baseUrl = value('aiBaseUrl').value.trim();
+    const model = value('aiModel').value.trim();
+    const contextLines = value('aiContextLines').valueAsNumber;
+    const apiKey = value('clearAiKey').checked ? '' : value('aiApiKey').value.trim() || null;
+    const search = readSearchFields();
+    if (baseUrl !== aiConfig.baseUrl || model !== aiConfig.model || contextLines !== aiConfig.contextLines
+      || apiKey !== null || search.braveKey !== null || search.searchEnabled !== aiConfig.searchEnabled
+      || search.searchProxyEnabled !== aiConfig.searchProxyEnabled || search.searchProxy !== aiConfig.searchProxy) {
+      await saveAi({ baseUrl, model, contextLines, apiKey, ...search });
+    }
+  }
   const initial = preferences.appearance;
   value('language').value = preferences.language || 'zh-CN';
   for (const key of ['preset', 'font', 'size', 'cursor']) value(key).value = initial[key];
