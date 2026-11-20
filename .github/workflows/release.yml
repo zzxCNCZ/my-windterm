@@ -75,7 +75,7 @@ jobs:
         include:
           - os: macos-15-intel
             target: aarch64-apple-darwin
-            bundles: app,dmg
+            bundles: app
             installer_dir: dmg
             name: macos-arm64
             extension: dmg
@@ -127,6 +127,21 @@ jobs:
       - name: Verify macOS executable architecture
         if: runner.os == 'macOS'
         run: lipo src-tauri/target/${{ matrix.target }}/release/my-windterm -verify_arch arm64
+      - name: Create and verify macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          bundle="src-tauri/target/${{ matrix.target }}/release/bundle"
+          staging="$(mktemp -d "$RUNNER_TEMP/my-windterm-dmg.XXXXXX")"
+          trap 'rm -rf "$staging"' EXIT
+          ditto "$bundle/macos/My WindTerm.app" "$staging/My WindTerm.app"
+          ln -s /Applications "$staging/Applications"
+          mkdir -p "$bundle/dmg"
+          dmg="$bundle/dmg/My WindTerm_${RELEASE_TAG#v}_aarch64.dmg"
+          hdiutil create -volname "My WindTerm" -srcfolder "$staging" -fs HFS+ -format UDZO "$dmg"
+          hdiutil verify "$dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
