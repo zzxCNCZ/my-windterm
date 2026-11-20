@@ -1,4 +1,10 @@
 export const english = {
+  '默认思考强度': 'Default reasoning effort', '由模型决定': 'Model default',
+  '低': 'Low', '中（Medium）': 'Medium', '高': 'High',
+  '思考与工具过程': 'Reasoning and tools', '工具执行过程': 'Tool execution',
+  '工具调用': 'Tool call', '检索词': 'Search query', '正在执行': 'Running',
+  '已完成': 'Completed', '执行失败': 'Failed', '已停止': 'Stopped',
+  '未找到搜索结果。': 'No search results.',
   'AI 工具': 'AI tools', '联网搜索': 'Web search', '联网搜索公开资料': 'Search public web resources',
   '联网搜索 · Brave Search': 'Web search · Brave Search', '联网搜索结果': 'Web search results',
   '在偏好设置的 AI 工具中启用联网搜索': 'Enable web search in Settings → AI tools',

@@ -1,6 +1,7 @@
 import { Channel } from '@tauri-apps/api/core';
 import { t } from './i18n.js';
 import { defaultContextLines } from './terminal-context.js';
+import { renderAiMarkdown } from './ai-markdown.js';
 
 const errorText = error => error instanceof Error ? error.message : String(error);
 
@@ -12,25 +13,6 @@ function node(tag, className, text) {
 }
 
 const titleFor = question => question.replace(/\s+/g, ' ').slice(0, 70);
-
-function messageBody(content) {
-  const body = node('div', 'ai-message-text');
-  let lines = [], inCode = false;
-  const append = () => {
-    if (lines.length) body.append(node(inCode ? 'pre' : 'div', '', lines.join('\n')));
-    lines = [];
-  };
-  for (const line of content.split('\n')) {
-    if (line.startsWith('```')) {
-      append();
-      inCode = !inCode;
-    } else {
-      lines.push(line);
-    }
-  }
-  append();
-  return body;
-}
 
 export function makeAiPanel({ root, invoke, showDock, newId }) {
   const find = id => root.querySelector(`#${id}`);
@@ -76,8 +58,17 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
     if (conversation === thread()) renderStatus();
   }
 
-  function sourceButtons(sources) {
-    const conversation = thread();
+  function openSource(conversation, url) {
+    void invoke('open_ai_source', { url })
+      .catch(error => { if (!conversation.disposed) setStatus(conversation, errorText(error), true); });
+  }
+
+  messages.addEventListener('click', event => {
+    const link = event.target.closest('.ai-markdown-link');
+    if (link && thread()) openSource(thread(), link.dataset.aiUrl);
+  });
+
+  function sourceButtons(sources, conversation = thread()) {
     const list = node('div', 'ai-sources');
     list.append(node('span', '', t('联网搜索结果')));
     for (const source of sources) {
@@ -85,30 +76,84 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
       const link = node('button', 'ai-source', source.title || source.url);
       link.type = 'button';
       link.title = source.url;
-      link.addEventListener('click', () => void invoke('open_ai_source', { url: source.url })
-        .catch(error => { if (!conversation.disposed) setStatus(conversation, errorText(error), true); }));
+      link.addEventListener('click', () => openSource(conversation, source.url));
       list.append(link);
     }
     return list;
   }
 
-  function message(role, text, reasoning = '') {
-    const article = node('article', `ai-message ai-message-${role}`);
-    const body = messageBody(text);
-    article.append(node('strong', '', t(role === 'user' ? '你' : 'AI')));
-    const details = node('details', 'ai-reasoning');
-    const summary = node('summary', '', t('思考过程'));
-    const trace = node('pre', '', reasoning);
-    details.append(summary, trace);
-    details.hidden = !reasoning;
-    if (role === 'assistant') {
-      details.addEventListener('toggle', () => {
-        if (details.open && atBottom) messages.scrollTop = messages.scrollHeight;
-      });
-      article.append(details);
+  function toolRecord(tool, conversation, open) {
+    const record = node('details', 'ai-tool-record');
+    record.open = open;
+    const label = node('summary', 'ai-tool-summary');
+    const name = tool.name === 'brave_search' ? 'Brave Search' : tool.name || t('工具调用');
+    const states = { running: '正在执行', succeeded: '已完成', failed: '执行失败', stopped: '已停止' };
+    label.append(node('span', '', name), node('span', `ai-tool-state ai-tool-${tool.state}`, t(states[tool.state])));
+    record.append(label);
+    if (tool.query) {
+      const query = node('p', 'ai-tool-query');
+      query.append(node('span', '', t('检索词')), node('code', '', tool.query));
+      record.append(query);
     }
+    if (tool.error) record.append(node('p', 'ai-tool-error', t(tool.error)));
+    if (tool.state === 'succeeded') {
+      if (tool.sources.length) record.append(sourceButtons(tool.sources, conversation));
+      else record.append(node('p', '', t('未找到搜索结果。')));
+    }
+    return record;
+  }
+
+  function updateTrace(view, entries, stage) {
+    const { details, summary, timeline, conversation } = view;
+    const follow = stage && timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight <= 8;
+    details.hidden = !entries.length;
+    const hasTools = entries.some(entry => entry.kind === 'tool');
+    const hasReasoning = entries.some(entry => entry.kind === 'reasoning');
+    let label = hasTools && hasReasoning ? '思考与工具过程' : hasTools ? '工具执行过程' : '思考过程';
+    if (stage === 'reasoningDelta') label = '正在思考…';
+    if (entries.some(entry => entry.tool?.state === 'running')) label = '正在联网搜索…';
+    const title = t(label);
+    if (summary.textContent !== title) summary.textContent = title;
+    for (const [index, entry] of entries.entries()) {
+      if (view.entries[index] === entry) continue;
+      const previous = timeline.children[index];
+      let row;
+      if (entry.kind === 'reasoning') {
+        row = node('div', 'ai-markdown ai-trace-reasoning');
+        row.innerHTML = renderAiMarkdown(entry.text);
+      } else {
+        row = toolRecord(entry.tool, conversation, previous?.open ?? false);
+      }
+      if (previous) previous.replaceWith(row);
+      else timeline.append(row);
+      view.entries[index] = entry;
+    }
+    if (follow) timeline.scrollTop = timeline.scrollHeight;
+  }
+
+  function message(role, text, result) {
+    const article = node('article', `ai-message ai-message-${role}`);
+    article.append(node('strong', '', t(role === 'user' ? '你' : 'AI')));
+    if (role === 'user') {
+      article.append(node('div', 'ai-message-text', text));
+      return { article };
+    }
+    const body = node('div', 'ai-message-text ai-markdown');
+    body.innerHTML = renderAiMarkdown(text);
+    const details = node('details', 'ai-trace');
+    const summary = node('summary', '', t('思考过程'));
+    const timeline = node('div', 'ai-trace-timeline');
+    details.append(summary, timeline);
+    details.open = result.traceOpen ?? true;
+    details.addEventListener('toggle', () => {
+      result.traceOpen = details.open;
+      if (details.isConnected && details.open && atBottom) messages.scrollTop = messages.scrollHeight;
+    });
+    const trace = { details, summary, timeline, entries: [], conversation: thread() };
+    updateTrace(trace, result.trace, result.stage);
+    article.append(details);
     article.append(body);
-    return { article, body, details, summary, trace };
+    return { article, body, text, trace };
   }
 
   function renderMessages(follow = true) {
@@ -118,7 +163,7 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
     const content = [];
     for (const turn of conversation?.turns ?? []) {
       content.push(message('user', turn.question).article);
-      const { article } = message('assistant', turn.answer, turn.reasoning);
+      const { article } = message('assistant', turn.answer, turn);
       if (Array.isArray(turn.sources) && turn.sources.length) article.append(sourceButtons(turn.sources));
       content.push(article);
     }
@@ -126,8 +171,8 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
     const pending = running || conversation?.interrupted;
     if (pending) {
       content.push(message('user', pending.question).article);
-      const bubble = message('assistant', pending.text, pending.reasoning);
-      bubble.article.hidden = !pending.text && !pending.reasoning;
+      const bubble = message('assistant', pending.text, pending);
+      bubble.article.hidden = !pending.text && !pending.trace.length;
       content.push(bubble.article);
       if (running) liveReply = bubble;
     }
@@ -146,16 +191,12 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
     streamFrame = requestAnimationFrame(() => {
       streamFrame = 0;
       if (thread() !== conversation || conversation.running !== target || !liveReply) return;
-      const { article, body, details, summary, trace } = liveReply;
-      article.hidden = !target.text && !target.reasoning;
-      details.hidden = !target.reasoning;
-      const summaryText = t(target.stage === 'reasoningDelta' ? '正在思考…' : '思考过程');
-      if (summary.textContent !== summaryText) summary.textContent = summaryText;
-      if (trace.textContent !== target.reasoning) trace.textContent = target.reasoning;
-      // Leave the details node in place so its expanded state survives streaming.
-      if (body.dataset.text !== target.text) {
-        body.dataset.text = target.text;
-        body.replaceChildren(...messageBody(target.text).childNodes);
+      const { article, body, trace } = liveReply;
+      article.hidden = !target.text && !target.trace.length;
+      updateTrace(trace, target.trace, target.stage);
+      if (liveReply.text !== target.text) {
+        body.innerHTML = renderAiMarkdown(target.text);
+        liveReply.text = target.text;
       }
       if (atBottom) messages.scrollTop = messages.scrollHeight;
     });
@@ -336,7 +377,7 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
     const context = include.checked
       ? (conversation.preview === undefined ? currentContext(conversation) : conversation.preview)?.text
       : null;
-    const target = { id: newId(), question, text: '', reasoning: '' };
+    const target = { id: newId(), question, text: '', trace: [] };
     const request = {
       id: target.id, question, context: context || null, webSearch: searchReady && search.checked,
       history: conversation.turns.slice(-6).map(({ question, answer }) => ({ question, answer })),
@@ -347,27 +388,38 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
     conversation.preview = undefined;
     setStatus(conversation, '正在等待 AI 回复…');
     render();
-    const progress = new Channel(({ kind, text }) => {
+    const progress = new Channel(({ kind, text, tool }) => {
       if (!target.started) {
         target.started = true;
         if (target.stopping) void stopRequest(conversation, target);
       }
       if (conversation.disposed || conversation.running !== target || target.stopping) return;
       if (kind === 'thinking') target.text = '';
-      if (kind === 'reasoningDelta') target.reasoning += text;
+      if (kind === 'reasoningDelta') {
+        const last = target.trace.at(-1);
+        if (last?.kind === 'reasoning') target.trace[target.trace.length - 1] = { kind: 'reasoning', text: last.text + text };
+        else target.trace.push({ kind: 'reasoning', text });
+      }
       if (kind === 'answerDelta') target.text += text;
-      if (kind !== target.stage) {
+      const stage = kind === 'toolUpdate' ? (tool.state === 'running' ? 'searching' : 'thinking') : kind;
+      if (kind === 'toolUpdate') {
+        const entry = { kind: 'tool', tool };
+        const index = target.trace.findIndex(value => value.tool?.id === tool.id);
+        if (index === -1) target.trace.push(entry);
+        else target.trace[index] = entry;
+      }
+      if (stage !== target.stage) {
         const labels = { thinking: '正在等待 AI 回复…', searching: '正在联网搜索…',
           reasoningDelta: '正在思考…', answerDelta: '正在输出回答…' };
-        setStatus(conversation, labels[kind]);
-        target.stage = kind;
+        setStatus(conversation, labels[stage]);
+        target.stage = stage;
       }
       renderStream(conversation, target);
     });
     try {
       const answer = await invoke('ask_ai', { request, progress });
       if (conversation.disposed) return;
-      const turn = { question, answer: answer.text, reasoning: answer.reasoning, sources: answer.sources };
+      const turn = { question, answer: answer.text, trace: answer.trace, traceOpen: target.traceOpen, sources: answer.sources };
       conversation.turns.push(turn);
       conversation.draft = '';
       conversation.pinned = undefined;
@@ -375,8 +427,13 @@ export function makeAiPanel({ root, invoke, showDock, newId }) {
     } catch (error) {
       if (conversation.disposed) return;
       const detail = errorText(error);
-      if (target.text || target.reasoning) conversation.interrupted = target;
-      setStatus(conversation, detail, detail !== 'AI 问答已停止。');
+      const stopped = detail === 'AI 问答已停止。';
+      target.trace = target.trace.map(entry => entry.tool?.state === 'running'
+        ? { ...entry, tool: { ...entry.tool, state: stopped ? 'stopped' : 'failed' } }
+        : entry);
+      target.stage = undefined;
+      if (target.text || target.trace.length) conversation.interrupted = target;
+      setStatus(conversation, detail, !stopped);
     } finally {
       conversation.running = undefined;
       if (!conversation.disposed && thread() === conversation) {

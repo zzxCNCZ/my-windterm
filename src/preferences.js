@@ -64,6 +64,7 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
         <label>模型名称<input name="aiModel" spellcheck="false" maxlength="200" autocomplete="off"></label>
         <label>最近终端行数<input name="aiContextLines" type="number" min="10" max="500" required></label>
       </div>
+      <label>默认思考强度<select name="aiReasoningEffort"><option value="modelDefault">由模型决定</option><option value="low">低</option><option value="medium">中（Medium）</option><option value="high">高</option></select></label>
       <p class="hint">使用支持 Chat Completions 的模型。选区优先，较长的片段会按大小截取。</p>
       <label>模型 API Key<input name="aiApiKey" type="password" autocomplete="off" maxlength="4096"></label>
       <label class="check"><input type="checkbox" name="clearAiKey"> 清除模型密钥</label>
@@ -190,6 +191,7 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
   value('aiBaseUrl').value = aiConfig?.baseUrl ?? '';
   value('aiModel').value = aiConfig?.model ?? '';
   value('aiContextLines').value = aiConfig?.contextLines ?? defaultContextLines;
+  value('aiReasoningEffort').value = aiConfig?.reasoningEffort ?? 'medium';
   value('aiApiKey').placeholder = aiConfig?.hasApiKey ? t('已保存，留空保留') : '';
   value('aiBraveKey').placeholder = aiConfig?.hasBraveKey ? t('已保存，留空保留') : '';
   value('aiSearchEnabled').checked = aiConfig?.searchEnabled ?? true;
@@ -200,7 +202,7 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
   paintProxy();
   const searchResult = fields.querySelector('#ai-search-result');
   if (!aiConfig) {
-    for (const field of fields.querySelectorAll('[data-prefs-page="ai"] input, [data-prefs-page="tools"] input, [value="test-search"]')) field.disabled = true;
+    for (const field of fields.querySelectorAll('[data-prefs-page="ai"] input, [data-prefs-page="ai"] select, [data-prefs-page="tools"] input, [value="test-search"]')) field.disabled = true;
     fields.querySelector('#ai-settings-error').hidden = false;
     searchResult.textContent = t('无法读取 AI 设置。');
   }
@@ -227,12 +229,13 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
     const baseUrl = value('aiBaseUrl').value.trim();
     const model = value('aiModel').value.trim();
     const contextLines = value('aiContextLines').valueAsNumber;
+    const reasoningEffort = value('aiReasoningEffort').value;
     const apiKey = value('clearAiKey').checked ? '' : value('aiApiKey').value.trim() || null;
     const search = readSearchFields();
-    if (baseUrl !== aiConfig.baseUrl || model !== aiConfig.model || contextLines !== aiConfig.contextLines
+    if (baseUrl !== aiConfig.baseUrl || model !== aiConfig.model || contextLines !== aiConfig.contextLines || reasoningEffort !== aiConfig.reasoningEffort
       || apiKey !== null || search.braveKey !== null || search.searchEnabled !== aiConfig.searchEnabled
       || search.searchProxyEnabled !== aiConfig.searchProxyEnabled || search.searchProxy !== aiConfig.searchProxy) {
-      await saveAi({ baseUrl, model, contextLines, apiKey, ...search });
+      await saveAi({ baseUrl, model, contextLines, reasoningEffort, apiKey, ...search });
     }
   }
   const initial = preferences.appearance;

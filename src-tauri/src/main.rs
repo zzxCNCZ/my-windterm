@@ -329,7 +329,16 @@ fn main() {
         .manage(ai::Runs::default())
         .manage(Sessions::default());
     #[cfg(target_os = "macos")]
-    let builder = builder.manage(FileTransfers::default());
+    let builder = builder
+        .manage(FileTransfers::default())
+        .on_window_event(|window, event| {
+            if window.label() == "main"
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.hide().is_ok()
+            {
+                api.prevent_close();
+            }
+        });
     builder
         .setup(|app| {
             app.manage(Arc::new(Mutex::new(ConfigStore::new(
@@ -373,6 +382,14 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to initialize My WindTerm")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = &event
+                && let Some(window) = app.get_webview_window("main")
+            {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
             if matches!(
                 event,
                 tauri::RunEvent::Exit
