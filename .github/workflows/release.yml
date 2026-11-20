@@ -75,12 +75,14 @@ jobs:
         include:
           - os: macos-15-intel
             target: aarch64-apple-darwin
-            bundle: dmg
+            bundles: app,dmg
+            installer_dir: dmg
             name: macos-arm64
             extension: dmg
           - os: windows-2022
             target: x86_64-pc-windows-msvc
-            bundle: nsis
+            bundles: nsis
+            installer_dir: nsis
             name: windows-x64
             extension: exe
     steps:
@@ -102,15 +104,24 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Build installer
-        run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }}
+      - name: Build installer and sign update artifact
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          : "${TAURI_SIGNING_PRIVATE_KEY:?Set the repository's Tauri updater signing secrets first.}"
+          npm run tauri -- build --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - name: Verify macOS executable architecture
         if: runner.os == 'macOS'
-        run: lipo -verify_arch arm64 src-tauri/target/${{ matrix.target }}/release/my-windterm
+        run: lipo src-tauri/target/${{ matrix.target }}/release/my-windterm -verify_arch arm64
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundle }}/*.${{ matrix.extension }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.installer_dir }}/*.${{ matrix.extension }}
+            src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.installer_dir }}/*.${{ matrix.extension }}.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz*
           if-no-files-found: error
 
   publish:
@@ -123,18 +134,39 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: installers
-      - name: Publish both installers on GitHub Releases
+      - name: Publish both installers and the signed update feed
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         shell: bash
         run: |
-          shopt -s nullglob
-          mac=(installers/macos-arm64/*.dmg)
-          win=(installers/windows-x64/*.exe)
-          [[ ${#mac[@]} -eq 1 && ${#win[@]} -eq 1 ]]
+          shopt -s nullglob globstar
+          mac=(installers/macos-arm64/**/*.dmg)
+          mac_update=(installers/macos-arm64/**/*.app.tar.gz)
+          win=(installers/windows-x64/**/*.exe)
+          if [[ ${#mac[@]} -ne 1 || ${#mac_update[@]} -ne 1 || ${#win[@]} -ne 1 ]]; then
+            echo "::error::Expected one ARM64 DMG, one macOS update archive and one x64 NSIS installer."
+            exit 1
+          fi
+          if [[ ! -s "${mac_update[0]}.sig" || ! -s "${win[0]}.sig" ]]; then
+            echo "::error::Both updater signatures are required to publish the release."
+            exit 1
+          fi
+          mac_name="My-WindTerm-${RELEASE_TAG}-macos-arm64.app.tar.gz"
+          win_name="My-WindTerm-${RELEASE_TAG}-windows-x64-setup.exe"
           mv "${mac[0]}" "My-WindTerm-${RELEASE_TAG}-macos-arm64.dmg"
-          mv "${win[0]}" "My-WindTerm-${RELEASE_TAG}-windows-x64-setup.exe"
+          mv "${mac_update[0]}" "$mac_name"
+          mv "${mac_update[0]}.sig" "$mac_name.sig"
+          mv "${win[0]}" "$win_name"
+          mv "${win[0]}.sig" "$win_name.sig"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
+          jq -n --arg version "${RELEASE_TAG#v}" \
+            --arg macUrl "$base/$mac_name" --rawfile macSignature "$mac_name.sig" \
+            --arg winUrl "$base/$win_name" --rawfile winSignature "$win_name.sig" \
+            '{version: $version, platforms: {
+              "darwin-aarch64": {url: $macUrl, signature: ($macSignature | rtrimstr("\n") | rtrimstr("\r"))},
+              "windows-x86_64": {url: $winUrl, signature: ($winSignature | rtrimstr("\n") | rtrimstr("\r"))}
+            }}' > latest.json
           sha256sum My-WindTerm-* > SHA256SUMS.txt
-          gh release create "$RELEASE_TAG" My-WindTerm-* SHA256SUMS.txt \
+          gh release create "$RELEASE_TAG" My-WindTerm-* latest.json SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --verify-tag --title "My WindTerm $RELEASE_TAG" --generate-notes

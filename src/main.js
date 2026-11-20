@@ -521,6 +521,13 @@ function confirmDeleteGroup(group) {
 function settings() {
   editPreferences({ editor, form, fields, openEditor, open, view: () => view, selectProfileFolder,
     version: platform.version, checkUpdates: () => invoke('check_updates'), openRelease: url => invoke('open_release_page', { url }),
+    installUpdate(version, onProgress) {
+      if (activeTransfer || [...tabs.values()].some(session => session.state !== 'idle')) {
+        throw new Error('请结束文件传输并断开 SSH 连接后再安装更新。');
+      }
+      const progress = new Channel(onProgress);
+      return invoke('install_update', { version, progress });
+    },
     preferences: { ...preferences, appearance, semanticColors },
     save(next) {
       preferences = next;

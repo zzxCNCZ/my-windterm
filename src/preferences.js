@@ -1,9 +1,10 @@
 import { ansiKeys, coreColors, fonts, presets, terminalAppearance } from './appearance.js';
+import { formatSize } from './filer.js';
 import { t } from './i18n.js';
 
 const labels = { background: '背景', foreground: '文字', cursor: '光标', selectionBackground: '选区' };
 
-export function editPreferences({ editor, form, fields, openEditor, open, view, selectProfileFolder, preferences, save, version, checkUpdates, openRelease }) {
+export function editPreferences({ editor, form, fields, openEditor, open, view, selectProfileFolder, preferences, save, version, checkUpdates, installUpdate, openRelease }) {
   function paintPath() {
     fields.querySelector('.config-path').textContent = view()?.profilePath || t('未读取到配置');
     form.querySelector('[value="migrate"]').disabled = !view();
@@ -25,7 +26,13 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
       <p class="hint">配置可能包含明文 SSH 密码。放入 OneDrive 等同步目录后，密码也会一起同步。</p>
       <div class="preferences-rule"></div>
       <strong>版本更新</strong>
-      <div class="preferences-actions"><span id="current-version"></span><button id="check-updates" type="button" class="secondary">检查更新</button><button id="open-release" type="button" class="secondary" hidden>查看 GitHub Release</button></div>
+      <div class="preferences-actions">
+        <span id="current-version"></span>
+        <button type="submit" value="check-update" class="secondary">检查更新</button>
+        <button id="install-update" type="submit" value="install-update" class="primary" hidden>下载并安装</button>
+        <button id="open-release" type="button" class="secondary" hidden>查看 GitHub Release</button>
+      </div>
+      <progress id="update-progress" aria-label="更新下载进度" hidden></progress>
       <p id="update-result" class="hint" role="status"></p>
     </section>
     <section class="preferences-section" data-prefs-page="appearance" hidden>
@@ -52,6 +59,14 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
     </section>
     <p class="hint">应用到当前及新建终端；语言和外观保存在本机，不随连接配置同步。</p>`,
   [['取消'], ['保存', 'save', true]], async intent => {
+    if (intent === 'check-update') {
+      await checkForUpdates();
+      return false;
+    }
+    if (intent === 'install-update') {
+      await installCheckedUpdate();
+      return false;
+    }
     if (intent === 'save') {
       save({ language: form.elements.language.value, appearance: readAppearance(),
         semanticColors: form.elements.semanticColors.checked });
@@ -64,26 +79,69 @@ export function editPreferences({ editor, form, fields, openEditor, open, view, 
   })) return;
   editor.classList.add('preferences-dialog');
   const listener = new AbortController();
-  const check = fields.querySelector('#check-updates');
+  const install = fields.querySelector('#install-update');
+  const progress = fields.querySelector('#update-progress');
   const result = fields.querySelector('#update-result');
   const release = fields.querySelector('#open-release');
-  let url;
+  let update;
   fields.querySelector('#current-version').textContent = `My WindTerm ${version}`;
-  check.addEventListener('click', async () => {
-    check.disabled = true;
+  async function checkForUpdates() {
+    update = null;
+    install.hidden = true;
     release.hidden = true;
+    progress.hidden = true;
     result.textContent = t('正在检查更新…');
     try {
-      const update = await checkUpdates();
-      url = update.url;
-      release.hidden = false;
-      result.textContent = update.available ? `${t('发现新版本：')}${update.latest}` : t(update.latest ? '当前已是最新版本。' : 'GitHub 暂无正式版本。');
+      update = await checkUpdates();
+      if (update.available) {
+        install.hidden = !update.installable;
+        release.hidden = update.installable;
+        const message = t(update.installable ? '安装后应用将重新启动。' : '此版本未提供可用的应用内更新包。');
+        result.textContent = `${t('发现新版本：')}${update.latest} · ${message}`;
+      } else {
+        result.textContent = t(update.latest ? '当前已是最新版本。' : 'GitHub 暂无正式版本。');
+      }
     } catch (error) {
       result.textContent = `${t('检查更新失败：')}${String(error)}`;
-    } finally { check.disabled = false; }
-  });
+    }
+  }
+  async function installCheckedUpdate() {
+    if (!update?.installable) return;
+    release.hidden = true;
+    progress.hidden = false;
+    progress.removeAttribute('value');
+    result.textContent = t('正在准备更新…');
+    let downloading = true;
+    try {
+      await installUpdate(update.latest, event => {
+        if (!downloading) return;
+        if (event.kind === 'installing') {
+          progress.removeAttribute('value');
+          result.textContent = t('正在校验并安装更新…');
+          return;
+        }
+        if (event.total > 0) {
+          progress.max = event.total;
+          progress.value = event.received;
+        }
+        const received = formatSize(event.received);
+        const total = event.total > 0 ? ` / ${formatSize(event.total)}` : '';
+        result.textContent = `${t('正在下载更新：')}${received}${total}`;
+      });
+      update = null;
+      install.hidden = true;
+      result.textContent = t('更新已安装，正在重启…');
+    } catch (error) {
+      const detail = t(error instanceof Error ? error.message : String(error));
+      result.textContent = `${t('安装更新失败：')}${detail}`;
+      release.hidden = false;
+    } finally {
+      downloading = false;
+      progress.hidden = true;
+    }
+  }
   release.addEventListener('click', async () => {
-    try { await openRelease(url); }
+    try { await openRelease(update.url); }
     catch (error) { result.textContent = String(error); }
   });
   editor.addEventListener('close', () => { listener.abort(); close(); }, { once: true });

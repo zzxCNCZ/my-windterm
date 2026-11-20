@@ -4,7 +4,9 @@ My WindTerm 是一个面向个人的 SSH 桌面客户端，支持 macOS Apple Si
 
 ## 下载和更新
 
-从 [GitHub Releases](https://github.com/zzxCNCZ/my-windterm/releases) 下载对应平台的安装包：macOS Apple Silicon 选 `macos-arm64.dmg`，Windows x64 选 `windows-x64-setup.exe`。同一 Release 提供 `SHA256SUMS.txt`。**偏好设置 → 通用 → 检查更新** 会检查最新正式 GitHub Release，并提供下载页面，不会自动下载或安装。
+首次安装请从 [GitHub Releases](https://github.com/zzxCNCZ/my-windterm/releases) 下载对应平台的安装包。macOS Apple Silicon 选 `macos-arm64.dmg`，将应用拖入「应用程序」；Windows x64 选 `windows-x64-setup.exe`。同一 Release 提供 `SHA256SUMS.txt`。
+
+在 **偏好设置 → 通用 → 检查更新** 中找到新版后，点 **下载并安装**。应用会显示进度、校验更新签名和版本，安装后重新启动。请先结束文件传输并断开 SSH 连接。使用 `v1.1.1` 或更早版本的用户，需要先安装一次包含应用内更新功能的版本。
 
 Windows 需要安装系统可选功能 **OpenSSH Client**。Windows 版支持 SSH 终端、配置和本地 Filer；远端 Filer / SFTP、rsync、已保存密码自动填入和命令大纲采集暂仅支持 macOS。Windows 可手动输入 SSH 密码，或用 SSH 密钥认证。
 
@@ -80,7 +82,9 @@ export PATH="$CARGO_HOME/bin:$PATH"
 
 `npm run tauri -- build --bundles app` 构建本机 `.app`；产物在 `src-tauri/target/release/bundle/macos/`。开发版使用 `--debug`，产物在 `src-tauri/target/debug/bundle/macos/`。本项目未配置对外分发的签名与公证。
 
-发布时同步修改 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 中的应用版本，提交后推送对应标签（例如版本 `1.1.1` 对应 `v1.1.1`）。GitHub Actions 会在两个平台运行测试、构建安装包，全部成功后才创建正式 Release。
+首次发布应用内更新前，在 [仓库的 Actions Secrets](https://github.com/zzxCNCZ/my-windterm/settings/secrets/actions) 添加 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，分别填入与 `src-tauri/tauri.conf.json` 中公钥配对的私钥内容和密码。妥善备份私钥和密码，后续发布沿用同一密钥，已安装的客户端使用内置公钥校验更新。
+
+发布时同步修改 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 中的应用版本，提交后推送对应标签。GitHub Actions 会测试并打包两个平台，在 Release 中一并发布 DMG、NSIS 安装器、签名的 macOS 更新归档和包含两个平台签名的 `latest.json`。应用内更新签名独立于 macOS 公证和 Windows Authenticode。
 
 ## 验证
 

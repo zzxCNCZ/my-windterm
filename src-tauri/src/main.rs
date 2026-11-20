@@ -323,6 +323,8 @@ fn main() {
     }
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::InstallLock::default())
         .manage(Sessions::default());
     #[cfg(target_os = "macos")]
     let builder = builder.manage(FileTransfers::default());
@@ -337,6 +339,7 @@ fn main() {
             copy_outline_command,
             platform_features,
             updates::check_updates,
+            updates::install_update,
             updates::open_release_page,
             load_profile,
             save_profile,
