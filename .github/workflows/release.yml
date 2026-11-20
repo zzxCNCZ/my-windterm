@@ -110,7 +110,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          : "${TAURI_SIGNING_PRIVATE_KEY:?Set the repository's Tauri updater signing secrets first.}"
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::Configure Tauri updater signing secrets in the repository settings."
+            exit 1
+          fi
           npm run tauri -- build --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - name: Verify macOS executable architecture
         if: runner.os == 'macOS'
